@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Image Segmentation and 3D Model</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/loaders/RGBELoader.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-900 text-white">
+    <div class="p-4 bg-gray-800 shadow-md flex flex-wrap gap-4 items-center">
+        <input type="file" id="imageInput" accept="image/*" class="bg-gray-700 p-2 rounded" />
+        <button id="downloadSegmentedBtn" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded hidden">Download
+            Segmented</button>
+        <button id="create3dBtn" class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded hidden">Create 3D</button>
+        <button id="downloadGlbBtn" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded hidden">Download
+            GLB</button>
+        <span id="loading" class="text-yellow-400 hidden ml-auto">Processing...</span>
+        <span id="error" class="text-red-500 ml-4 hidden"></span>
+    </div>
+
+    <div class="flex h-[calc(100vh-64px)]">
+        <div class="w-1/2 flex items-center justify-center bg-gray-950 border-r border-gray-700">
+            <img id="originalImage" class="max-w-full max-h-full cursor-crosshair" />
+        </div>
+
+        <div class="w-1/2">
+            <canvas id="canvas" class="w-full h-full"></canvas>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const imageInput = document.getElementById('imageInput');
+        const originalImage = document.getElementById('originalImage');
+        const canvas = document.getElementById('canvas');
+        const downloadSegmentedBtn = document.getElementById('downloadSegmentedBtn');
+        const create3dBtn = document.getElementById('create3dBtn');
+        const downloadGlbBtn = document.getElementById('downloadGlbBtn');
+        const loading = document.getElementById('loading');
+        const errorText = document.getElementById('error');
+
+        let currentImageFile = null;
+        let imageNaturalWidth = 0;
+        let imageNaturalHeight = 0;
+        let latestSegmentedURL = "";
+        let latestGlbURL = "";
+        let currentObject = null;
+
+        // --- THREE.js Scene Setup ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x222222);
+
+        // Load HDR environment map for PBR materials
+        const rgbeLoader = new THREE.RGBELoader();
+        rgbeLoader.load('https://threejs.org/examples/textures/equirectangular/royal_esplanade_1k.hdr', (texture) => {
+            texture.mapping = THREE.EquirectangularReflectionMapping;
+            scene.environment = texture;
+        });
+
+        const camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
+        camera.position.set(0, 2, 5);
+
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+        renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.outputEncoding = THREE.sRGBEncoding;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.0;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        // --- Lighting ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+        directionalLight.position.set(2, 5, 3);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 1024;
+        directionalLight.shadow.mapSize.height = 1024;
+        directionalLight.shadow.camera.near = 0.5;
+        directionalLight.shadow.camera.far = 50;
+        directionalLight.shadow.camera.left = -10;
+        directionalLight.shadow.camera.right = 10;
+        directionalLight.shadow.camera.top = 10;
+        directionalLight.shadow.camera.bottom = -10;
+        directionalLight.shadow.bias = -0.001;
+        scene.add(directionalLight);
+
+        const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+        scene.add(hemisphereLight);
+
+        // Orbit controls
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.screenSpacePanning = false;
+        controls.minDistance = 0.5;
+        controls.maxDistance = 50;
+
+        // Add a ground plane
+        const planeGeometry = new THREE.PlaneGeometry(20, 20);
+        const planeMaterial = new THREE.MeshStandardMaterial({ color: 0x444444 });
+        const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+        plane.rotation.x = -Math.PI / 2;
+        plane.position.y = -3;
+        plane.receiveShadow = true;
+        scene.add(plane);
+        // --- End THREE.js Scene Setup ---
+
+        // Auto-rotation variables
+        let lastInteractionTime = Date.now();
+        const idleTimeThreshold = 2000; // 2 seconds of inactivity before auto-rotation starts
+        const rotationSpeed = 0.01; // Radians per frame for slow rotation
+
+        // Detect user interaction with OrbitControls
+        controls.addEventListener('change', () => {
+            lastInteractionTime = Date.now();
+        });
+
+        // Clear error message
+        function clearError() {
+            errorText.classList.add('hidden');
+            errorText.textContent = '';
+        }
+
+        // Show error message
+        function showError(msg) {
+            errorText.textContent = msg;
+            errorText.classList.remove('hidden');
+        }
+
+        // Clear current object from scene and dispose resources
+        function clearScene() {
+            if (currentObject) {
+                currentObject.traverse((child) => {
+                    if (child.isMesh) {
+                        if (child.geometry) child.geometry.dispose();
+                        if (child.material) {
+                            if (Array.isArray(child.material)) {
+                                child.material.forEach(mat => {
+                                    if (mat.map) mat.map.dispose();
+                                    mat.dispose();
+                                });
+                            } else {
+                                if (child.material.map) child.material.map.dispose();
+                                child.material.dispose();
+                            }
+                        }
+                    }
+                });
+                scene.remove(currentObject);
+                currentObject = null;
+            }
+            downloadGlbBtn.classList.add('hidden');
+        }
+
+        // Create a plane with the segmented image texture
+        function createPlane(texture, width, height) {
+            clearScene();
+            const aspect = width / height;
+            const planeWidth = 5 * aspect;
+            const planeHeight = 5;
+            const geometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
+            const material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide, transparent: true });
+            currentObject = new THREE.Mesh(geometry, material);
+            scene.add(currentObject);
+
+            camera.position.set(0, 0, 7);
+            camera.lookAt(0, 0, 0);
+            controls.target.set(0, 0, 0);
+            controls.update();
+        }
+
+        // Load and display the GLB model
+        function loadGLB(url) {
+            clearScene();
+            loading.classList.remove('hidden');
+            const loader = new THREE.GLTFLoader();
+            loader.load(
+                url,
+                (gltf) => {
+                    loading.classList.add('hidden');
+                    currentObject = gltf.scene;
+                    latestGlbURL = url;
+                    downloadGlbBtn.classList.remove('hidden');
+
+                    currentObject.traverse((child) => {
+                        if (child.isMesh) {
+                            console.log('Material:', child.material);
+                            if (!child.material || child.material.type === 'MeshBasicMaterial') {
+                                child.material = new THREE.MeshStandardMaterial({
+                                    color: 0xff0000,
+                                    metalness: 0.5,
+                                    roughness: 0.5
+                                });
+                                console.warn('Applied fallback material to mesh:', child);
+                            }
+                            child.castShadow = true;
+                            child.receiveShadow = true;
+                            if (child.material && child.material.isMeshStandardMaterial) {
+                                child.material.needsUpdate = true;
+                            }
+                        }
+                    });
+
+                    const box = new THREE.Box3().setFromObject(currentObject);
+                    const center = box.getCenter(new THREE.Vector3());
+                    const size = box.getSize(new THREE.Vector3());
+
+                    const maxDim = Math.max(size.x, size.y, size.z);
+                    const desiredNormalizedSize = 1;
+                    currentObject.scale.setScalar(desiredNormalizedSize / maxDim);
+
+                    box.setFromObject(currentObject);
+                    box.getCenter(center);
+                    currentObject.position.sub(center);
+
+                    scene.add(currentObject);
+
+                    const fov = camera.fov * (Math.PI / 180);
+                    const cameraZ = Math.abs((maxDim * currentObject.scale.x) / 2 / Math.tan(fov / 2)) * 2;
+                    camera.position.set(0, 0, cameraZ);
+                    camera.lookAt(0, 0, 0);
+                    controls.target.set(0, 0, 0);
+                    controls.update();
+
+                    console.log('GLB model loaded successfully:', gltf);
+                },
+                (xhr) => {
+                    console.log((xhr.loaded / xhr.total * 100) + '% loaded');
+                },
+                (err) => {
+                    loading.classList.add('hidden');
+                    showError("Error loading GLB: " + err.message);
+                    console.error('Error loading GLB:', err);
+                    downloadGlbBtn.classList.add('hidden');
+                }
+            );
+        }
+
+        // Animation loop with auto-rotation
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+
+            // Auto-rotate if no user interaction for idleTimeThreshold
+            if (currentObject && Date.now() - lastInteractionTime > idleTimeThreshold) {
+                currentObject.rotation.y += rotationSpeed;
+            }
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // Handle image input change
+        imageInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            currentImageFile = file;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                originalImage.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // Store natural image size after loading
+        originalImage.addEventListener('load', () => {
+            imageNaturalWidth = originalImage.naturalWidth;
+            imageNaturalHeight = originalImage.naturalHeight;
+            clearScene();
+            downloadSegmentedBtn.classList.add('hidden');
+            create3dBtn.classList.add('hidden');
+        });
+
+        // Handle click on original image for segmentation
+        originalImage.addEventListener('click', (e) => {
+            if (!currentImageFile) {
+                showError("Please select an image first.");
+                return;
+            }
+
+            clearError();
+
+            const rect = originalImage.getBoundingClientRect();
+            const x = ((e.clientX - rect.left) / rect.width) * imageNaturalWidth;
+            const y = ((e.clientY - rect.top) / rect.height) * imageNaturalHeight;
+
+            const formData = new FormData();
+            formData.append('image', currentImageFile);
+            formData.append('x', x);
+            formData.append('y', y);
+
+            loading.classList.remove('hidden');
+            downloadSegmentedBtn.classList.add('hidden');
+            create3dBtn.classList.add('hidden');
+            downloadGlbBtn.classList.add('hidden');
+
+            fetch('/segment', {
+                method: 'POST',
+                body: formData
+            })
+                .then(res => {
+                    if (!res.ok) {
+                        throw new Error(`HTTP error! status: ${res.status}`);
+                    }
+                    return res.json();
+                })
+                .then(data => {
+                    loading.classList.add('hidden');
+                    if (data.error) {
+                        return showError(data.error);
+                    }
+
+                    latestSegmentedURL = data.segmented_image;
+                    latestGlbURL = data.glb_file;
+                    downloadSegmentedBtn.classList.remove('hidden');
+                    if (data.glb_file) {
+                        create3dBtn.classList.remove('hidden');
+                    }
+
+                    const textureLoader = new THREE.TextureLoader();
+                    textureLoader.load(data.segmented_image, (texture) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            createPlane(texture, img.width, img.height);
+                        };
+                        img.onerror = () => {
+                            showError('Failed to load segmented image for texture.');
+                        };
+                        img.src = data.segmented_image;
+                    }, undefined, () => {
+                        showError('Failed to load segmented image texture.');
+                    });
+                })
+                .catch(err => {
+                    loading.classList.add('hidden');
+                    showError("Error during segmentation: " + err.message);
+                    console.error("Fetch error:", err);
+                    downloadGlbBtn.classList.add('hidden');
+                    create3dBtn.classList.add('hidden');
+                });
+        });
+
+        // Create 3D button event listener
+        create3dBtn.addEventListener('click', () => {
+            if (latestGlbURL) {
+                loadGLB(latestGlbURL);
+                create3dBtn.classList.add('hidden');
+            } else {
+                showError("No 3D model available to display.");
+            }
+        });
+
+        // Download segmented image button event listener
+        downloadSegmentedBtn.addEventListener('click', () => {
+            if (latestSegmentedURL) {
+                const link = document.createElement('a');
+                link.href = latestSegmentedURL;
+                link.download = 'segmented.png';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+        });
+
+        // Download GLB model button event listener
+        downloadGlbBtn.addEventListener('click', () => {
+            if (latestGlbURL) {
+                const link = document.createElement('a');
+                link.href = latestGlbURL;
+                link.download = 'model.glb';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } else {
+                showError("No GLB model available for download.");
+            }
+        });
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            const width = canvas.clientWidth;
+            const height = canvas.clientHeight;
+
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+            renderer.setPixelRatio(window.devicePixelRatio);
+        });
+    </script>
+</body>
+
+</html>
