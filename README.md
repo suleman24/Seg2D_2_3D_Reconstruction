@@ -2,6 +2,15 @@
 
 A Flask web app for image segmentation using SAM and 3D model creation with Trellis API, visualized with Three.js. Features
 
+**Three main files**
+
++ main.py
+
++ trellis.py
+
++ templates/index.html
+
+
 **Application Flow**
 
 The application processes an image from upload to 3D model visualization as follows:
@@ -15,60 +24,60 @@ The application processes an image from upload to 3D model visualization as foll
 
 **Prerequisites**
 
-Python 3.8+
++ Python 3.8+
 
-PyTorch (CUDA-enabled)
++ PyTorch (CUDA-enabled)
 
-Flask, OpenCV, NumPy, Gradio Client
++ Flask, OpenCV, NumPy, Gradio Client
 
-SAM checkpoint (sam_vit_h_4b8939.pth)
++ SAM checkpoint (sam_vit_h_4b8939.pth)
 
-Hugging Face token for Trellis API
++ Hugging Face token for Trellis API
 
 **Installation**
 
-Clone repo:git clone https://github.com/suleman24/Seg2D_2_3D_Reconstruction
++ Clone repo:git clone https://github.com/suleman24/Seg2D_2_3D_Reconstruction
 
-cd Seg2D_2_3D_Reconstruction
++ cd Seg2D_2_3D_Reconstruction
 
-Set up virtual environment:python -m venv venv
++ Set up virtual environment:python -m venv venv
 
-source venv/bin/activate  # Windows: venv\Scripts\activate
++ source venv/bin/activate  # Windows: venv\Scripts\activate
 
-Install dependencies:pip install flask opencv-python torch numpy gradio-client segment-anything
++ Install dependencies:pip install flask opencv-python torch numpy gradio-client segment-anything
 
-Download SAM checkpoint and place in root.
++ Download SAM checkpoint and place in root.
 
-Update HFs in trellis.py with your Hugging Face token.
++ Update HFs in trellis.py with your Hugging Face token.
 
-Create uploads directory:mkdir -p static/uploads
++ Create uploads directory:mkdir -p static/uploads
 
 
 **Usage**
 
-Run app:python main.py
++ Run app:python main.py
 
-Open http://localhost:5005 in browser.
++ Open http://localhost:5005 in browser.
 
-Upload image, click to segment, view 3D model, and download results.
++ Upload image, click to segment, view 3D model, and download results.
 
 **Structure**
 
-main.py: Flask backend for segmentation and 3D model generation.
++ main.py: Flask backend for segmentation and 3D model generation.
 
-trellis.py: Interfaces with Trellis API.
++ trellis.py: Interfaces with Trellis API.
 
-index.html: Frontend with Three.js rendering.
++ templates/index.html: Frontend with Three.js rendering.
 
-static/uploads/: Stores images and GLB files.
++ static/uploads/: Stores images and GLB files.
 
 
 **Acknowledgments**
 
-Segment Anything
++ Segment Anything
 
-Trellis API
++ Trellis API
 
-Three.js
++ Three.js
 
 
