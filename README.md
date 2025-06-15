@@ -1,10 +1,7 @@
-Seg2D_2_3D_Reconstruction
+**Seg2D_2_3D_Reconstruction**
+A Flask web app for image segmentation using SAM and 3D model creation with Trellis API, visualized with Three.js. Features
 
-A Flask web app for image segmentation using SAM and 3D model creation with Trellis API, visualized with Three.js.
-Features
-
-Application Flow
-
+**Application Flow**
 The application processes an image from upload to 3D model visualization as follows:
 1. Image Upload: User uploads an image via the web interface (index.html).
 2. Point Selection: User clicks a point on the image to indicate the object for segmentation.
@@ -14,50 +11,41 @@ The application processes an image from upload to 3D model visualization as foll
 6. 3D Visualization: The GLB model is loaded into the Three.js scene, replacing the 2D plane (when user clicks on 'create 3D'), with lighting, shadows, and auto rotation.
 7. Download Options: Users can download the segmented image (PNG) or the 3D model (GLB) via buttons in the interface.
 
-Prerequisites
-
+**Prerequisites**
 Python 3.8+
 PyTorch (CUDA-enabled)
 Flask, OpenCV, NumPy, Gradio Client
 SAM checkpoint (sam_vit_h_4b8939.pth)
 Hugging Face token for Trellis API
 
-Installation
-
+**Installation**
 Clone repo:git clone https://github.com/suleman24/Seg2D_2_3D_Reconstruction
 cd Seg2D_2_3D_Reconstruction
-
 
 Set up virtual environment:python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
-
 Install dependencies:pip install flask opencv-python torch numpy gradio-client segment-anything
-
 
 Download SAM checkpoint and place in root.
 Update HFs in trellis.py with your Hugging Face token.
 Create uploads directory:mkdir -p static/uploads
 
 
-Usage
-
+**Usage**
 Run app:python main.py
-
 
 Open http://localhost:5005 in browser.
 Upload image, click to segment, view 3D model, and download results.
 
-Structure
-
+**Structure**
 main.py: Flask backend for segmentation and 3D model generation.
 trellis.py: Interfaces with Trellis API.
 index.html: Frontend with Three.js rendering.
 static/uploads/: Stores images and GLB files.
 
 
-Acknowledgments
-
+**Acknowledgments**
 Segment Anything
 Trellis API
 Three.js
